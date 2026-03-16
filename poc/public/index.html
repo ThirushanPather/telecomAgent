@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vodacom Credit &amp; Collections — AI Agent</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- ─── Header ──────────────────────────────────────────────────────────────── -->
+<header class="app-header">
+  <div class="header-wordmark"><span>Voda</span>com</div>
+  <div class="header-divider"></div>
+  <div class="header-title">Credit &amp; Collections — AI Agent</div>
+  <div class="header-badge">POC</div>
+</header>
+
+<!-- ─── Tab Bar ─────────────────────────────────────────────────────────────── -->
+<nav class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('agent1', this)">Call Center Agent</button>
+  <button class="tab-btn" onclick="switchTab('agent2', this)">Campaign Strategy</button>
+</nav>
+
+<!-- ─── TAB 1: Call Center Agent ────────────────────────────────────────────── -->
+<div id="tab-agent1" class="tab-panel active">
+  <div class="three-col three-col--agent1">
+
+    <!-- LEFT: Scenarios + Customer Card -->
+    <div class="col-stack">
+
+      <!-- Scenario selector -->
+      <div class="panel" style="flex-shrink:0;">
+        <div class="panel-header">
+          <span>Demo Scenarios</span>
+        </div>
+        <div class="scenario-list" id="agent1-scenarios">
+          <div class="loading-state">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Customer Account Card -->
+      <div class="panel panel--grow">
+        <div class="panel-header">
+          <span>Customer Account</span>
+          <span id="verify-badge" style="display:none;" class="badge badge--muted">Unverified</span>
+        </div>
+        <div class="customer-card-body">
+          <div class="card-field">
+            <div class="card-label">Account Number</div>
+            <div class="card-value card-value--masked" id="cc-acct">— select a scenario —</div>
+          </div>
+          <div class="card-field">
+            <div class="card-label">Customer Name</div>
+            <div class="card-value card-value--masked card-value--name" id="cc-name">—</div>
+          </div>
+          <div class="card-field">
+            <div class="card-label">Balance Owed</div>
+            <div class="card-value card-value--masked card-value--balance" id="cc-balance">—</div>
+          </div>
+          <div class="card-grid">
+            <div class="card-field">
+              <div class="card-label">Days Overdue</div>
+              <div class="card-value card-value--masked" id="cc-days">—</div>
+            </div>
+            <div class="card-field">
+              <div class="card-label">Service Status</div>
+              <div id="cc-status-wrap">
+                <div class="card-value card-value--masked" id="cc-status">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="card-field">
+            <div class="card-label">Plan</div>
+            <div class="card-value card-value--masked" id="cc-plan">—</div>
+          </div>
+          <div class="card-field">
+            <div class="card-label">Account Type</div>
+            <div class="card-value card-value--masked" id="cc-type">—</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /col-stack left -->
+
+    <!-- CENTER: Chat -->
+    <div class="chat-panel">
+      <div class="chat-panel-header">
+        <span class="chat-panel-label">Voda — Call Center Agent</span>
+        <button class="btn btn--secondary" style="padding:5px 12px; font-size:11px;" onclick="newCall()">New Call</button>
+      </div>
+      <div class="chat-box" id="agent1-chat-box">
+        <div class="message bot">Hello, thank you for calling Vodacom. My name is Voda. How can I assist you today?</div>
+      </div>
+      <div class="chat-status" id="agent1-status"></div>
+      <div class="chat-input-row">
+        <input type="text" id="agent1-input" placeholder="Type a message..." autocomplete="off">
+        <button class="btn btn--primary" id="agent1-send-btn" onclick="agent1Send()">Send</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: Agent Activity -->
+    <div class="panel panel--fill">
+      <div class="panel-header">
+        <span>Agent Activity</span>
+        <button class="btn--ghost" onclick="clearActivity()">Clear</button>
+      </div>
+      <div class="panel-body activity-feed" id="agent1-activity">
+        <div class="activity-empty">Tool calls will appear here as the conversation progresses.</div>
+      </div>
+    </div>
+
+  </div><!-- /three-col agent1 -->
+</div><!-- /tab-agent1 -->
+
+<!-- ─── TAB 2: Campaign Strategy ─────────────────────────────────────────────── -->
+<div id="tab-agent2" class="tab-panel">
+  <div class="three-col three-col--agent2">
+
+    <!-- LEFT: Subscriber Table -->
+    <div class="panel panel--fill" style="display:flex; flex-direction:column;">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          Subscribers
+          <span id="sub-count-badge" class="count-badge">—</span>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <div class="filter-row">
+          <span class="filter-label">Type</span>
+          <select id="filter-type" onchange="applyFilters()">
+            <option value="">All Types</option>
+            <option>STANDARD</option>
+            <option>FPD</option>
+            <option>NVP</option>
+            <option>HIGH_RISK</option>
+            <option>TUC</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Days</span>
+          <input id="filter-days-min" type="number" placeholder="Min" min="0" oninput="applyFilters()">
+          <span style="color:var(--text-dim); font-size:11px; flex-shrink:0;">to</span>
+          <input id="filter-days-max" type="number" placeholder="Max" min="0" oninput="applyFilters()">
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Status</span>
+          <select id="filter-status" onchange="applyFilters()">
+            <option value="">All Statuses</option>
+            <option>ACTIVE</option>
+            <option>SOFT_LOCKED</option>
+            <option>SUSPENDED</option>
+            <option>DELETED</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="sub-table">
+          <thead>
+            <tr>
+              <th style="width:30px;"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this)"></th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Days</th>
+              <th>Balance</th>
+              <th>Status</th>
+              <th>Last Response</th>
+            </tr>
+          </thead>
+          <tbody id="subscribers-tbody">
+            <tr><td colspan="7" class="loading-state">Loading subscribers...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-footer">
+        <span class="table-footer-count" id="selected-count">0 selected</span>
+        <button class="btn btn--primary" style="padding:5px 14px; font-size:11.5px;" id="analyse-btn" onclick="analyseSelected()" disabled>Analyse Selected</button>
+      </div>
+    </div><!-- /left panel -->
+
+    <!-- CENTER: Recommendations -->
+    <div class="panel panel--fill" style="display:flex; flex-direction:column;">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          Recommendations
+          <span id="recs-count-badge" class="count-badge" style="display:none;"></span>
+        </div>
+      </div>
+      <div class="panel-body recs-body" id="recommendations-panel">
+        <div class="empty-state">Select subscribers from the table and click Analyse Selected to generate campaign recommendations.</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Analysis Log + RPA Log -->
+    <div class="col-stack">
+
+      <div class="panel panel--half">
+        <div class="panel-header">
+          <span>Analysis Log</span>
+          <button class="btn--ghost" onclick="clearReasoning()">Clear</button>
+        </div>
+        <div class="panel-body activity-feed" id="agent2-reasoning">
+          <div class="activity-empty">Reasoning will appear here during analysis.</div>
+        </div>
+      </div>
+
+      <div class="panel panel--half">
+        <div class="panel-header">
+          <div class="panel-header-left">
+            RPA Action Log
+            <span id="rpa-count-badge" class="count-badge">0</span>
+          </div>
+          <button class="btn--ghost" onclick="refreshRpaLog()">Refresh</button>
+        </div>
+        <div class="panel-body" id="rpa-log-body">
+          <div class="empty-state">No RPA actions executed yet.</div>
+        </div>
+      </div>
+
+    </div><!-- /col-stack right -->
+
+  </div><!-- /three-col agent2 -->
+</div><!-- /tab-agent2 -->
+
+<script>
+  function switchTab(name, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    btn.classList.add('active');
+    if (name === 'agent2') initAgent2();
+  }
+</script>
+<script src="/agent1.js"></script>
+<script src="/agent2.js"></script>
+</body>
+</html>
