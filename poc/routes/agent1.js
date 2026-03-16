@@ -1,10 +1,59 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Router } from "express";
+import twilio from "twilio";
+import nodemailer from "nodemailer";
 import mockDb from "../data/mockDb.js";
 
 const router = Router();
 
-// Lazy — initialized on first request so dotenv has already run by then.
+// ─── Twilio WhatsApp helper ────────────────────────────────────────────────────
+
+async function sendWhatsApp(subscriberName, accountNumber, balance) {
+  const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  const body =
+    `Vodacom Credit & Collections: Dear ${subscriberName}, your account ` +
+    `${accountNumber} has an outstanding balance of R${Number(balance).toFixed(2)}. ` +
+    `Please make payment at: https://pay.vodacom.co.za/${accountNumber} ` +
+    `- Reply HELP for assistance.`;
+  const msg = await client.messages.create({
+    from: process.env.TWILIO_WHATSAPP_FROM,
+    to:   process.env.TWILIO_WHATSAPP_TO,
+    body,
+  });
+  console.log(`[WhatsApp] Sent SID=${msg.sid} to ${process.env.TWILIO_WHATSAPP_TO}`);
+}
+
+// ─── Nodemailer Gmail helper ───────────────────────────────────────────────────
+
+async function sendEmail(subscriberName, accountNumber, balance, daysOverdue) {
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    auth: {
+      user: process.env.SMTP_EMAIL,
+      pass: process.env.SMTP_PASSWORD,
+    },
+  });
+  const text =
+    `Dear ${subscriberName},\n\n` +
+    `This is a reminder that your Vodacom account ${accountNumber} has an ` +
+    `outstanding balance of R${Number(balance).toFixed(2)} which is ${daysOverdue} days overdue.\n\n` +
+    `Please make payment immediately to avoid further action.\n\n` +
+    `Payment link: https://pay.vodacom.co.za/${accountNumber}\n\n` +
+    `If you have already made payment, please disregard this notice.\n\n` +
+    `Vodacom Credit and Collections`;
+  const info = await transporter.sendMail({
+    from: process.env.SMTP_EMAIL,
+    to:   process.env.SMTP_RECIPIENT,
+    subject: `Vodacom Account ${accountNumber} — Payment Required`,
+    text,
+  });
+  console.log(`[Email] Sent messageId=${info.messageId} to ${process.env.SMTP_RECIPIENT}`);
+}
+
+// ─── Lazy Gemini model ────────────────────────────────────────────────────────
+
 let _model = null;
 function getModel() {
   if (!_model) {
@@ -402,6 +451,16 @@ function executeTool(name, args) {
       logged_at: new Date().toISOString(),
     };
     mockDb.addAction(link);
+
+    // Fire real communications — errors are logged but never surface to the agent.
+    sendWhatsApp(sub.name, args.account_number, sub.balance_owed)
+      .catch((e) => console.error("[WhatsApp] Failed:", e.message));
+
+    if (channel === "EMAIL") {
+      sendEmail(sub.name, args.account_number, sub.balance_owed, sub.days_overdue)
+        .catch((e) => console.error("[Email] Failed:", e.message));
+    }
+
     return {
       status: "success",
       message: `Secure payment link sent via ${channel} to ${destination}.`,

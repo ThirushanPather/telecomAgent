@@ -493,6 +493,19 @@ function executeTool(name, args) {
   return { status: "error", message: `Unknown tool: ${name}` };
 }
 
+// ─── Webhook helper ───────────────────────────────────────────────────────────
+
+async function fireWebhook(payload) {
+  const url = process.env.WEBHOOK_URL;
+  if (!url) return;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  console.log(`[Webhook] POST ${url} → ${res.status}`);
+}
+
 // ─── Reasoning Steps Builder ──────────────────────────────────────────────────
 // Deterministic step-by-step reasoning derived from the rules engine result.
 // Generates a JSON-compatible array of strings matching the lifecycle logic.
@@ -647,6 +660,19 @@ router.post("/approve-action", (req, res) => {
     }
 
     console.log("[Agent2] /approve-action:", JSON.stringify(result, null, 2));
+
+    // Fire webhook — errors are logged but never delay or fail the response.
+    fireWebhook({
+      event:           "RPA_ACTION_APPROVED",
+      timestamp:       new Date().toISOString(),
+      subscriber_id:   result.subscriber_id,
+      subscriber_name: result.subscriber_name,
+      action_type:     result.action_type,
+      reference:       result.reference,
+      recommended_by:  "AI_AGENT",
+      approved_by:     "HUMAN_OPERATOR",
+    }).catch((e) => console.error("[Webhook] Failed:", e.message));
+
     res.json(result);
   } catch (error) {
     console.error("[Agent2 ERROR]", error?.message ?? error);
