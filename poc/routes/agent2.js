@@ -493,6 +493,54 @@ function executeTool(name, args) {
   return { status: "error", message: `Unknown tool: ${name}` };
 }
 
+// ─── Reasoning Steps Builder ──────────────────────────────────────────────────
+// Deterministic step-by-step reasoning derived from the rules engine result.
+// Generates a JSON-compatible array of strings matching the lifecycle logic.
+
+function buildReasoningSteps(sub, rec) {
+  const steps = [];
+
+  steps.push(
+    `Profile loaded: ${sub.name} | ${sub.account_type} account | ${sub.days_overdue}d overdue | R${Number(sub.balance_owed).toFixed(2)} balance.`
+  );
+
+  if (sub.balance_owed < 200) {
+    steps.push(`Balance R${sub.balance_owed} is below the R200 threshold. Collections cost exceeds recovery value.`);
+    steps.push(`Compliance rule applied: flag for small balance write-off. No outreach campaign recommended.`);
+    steps.push(`Final recommendation: ${rec.campaign_type} | Urgency: ${rec.urgency}.`);
+    return steps;
+  }
+
+  if (sub.open_epix_tickets) {
+    steps.push(`Open EPIX billing ticket detected. Initiating collections action during an active billing dispute is non-compliant.`);
+    steps.push(`Compliance rule applied: place account on EPIX hold until billing query is resolved.`);
+    steps.push(`Final recommendation: ${rec.campaign_type} | Urgency: ${rec.urgency}.`);
+    return steps;
+  }
+
+  const effectiveDays = sub.last_response === "BROKEN_PTP" ? sub.days_overdue + 15 : sub.days_overdue;
+  if (sub.last_response === "BROKEN_PTP") {
+    steps.push(`BROKEN_PTP modifier applied: previous promise to pay was broken. Effective days set to ${effectiveDays} (actual: ${sub.days_overdue}).`);
+  } else {
+    steps.push(`Last response: ${sub.last_response}. No broken-PTP modifier required. Effective days: ${effectiveDays}.`);
+  }
+
+  let stageName;
+  if (effectiveDays <= 15)       stageName = "Days 1-15 (early stage)";
+  else if (effectiveDays <= 30)  stageName = "Days 16-30 (warning stage)";
+  else if (effectiveDays <= 60)  stageName = "Days 31-60 (suspension stage)";
+  else if (effectiveDays <= 90)  stageName = "Days 61-90 (hard collections)";
+  else if (effectiveDays <= 218) stageName = "Days 91-218 (pre-legal)";
+  else                           stageName = "Days 219+ (legal / DCA)";
+
+  steps.push(`Lifecycle stage: ${stageName}. Applying ${sub.account_type} account type modifiers.`);
+  steps.push(`Bureau listed: ${sub.bureau_listed ? "yes — skip bureau update" : "no — bureau update may be required"}.`);
+  steps.push(`Campaign selected: ${rec.campaign_type} | Urgency: ${rec.urgency}.`);
+  steps.push(`Recommended action: ${rec.recommended_action}`);
+
+  return steps;
+}
+
 // ─── Shared AI chat loop ──────────────────────────────────────────────────────
 
 async function runChat(userText) {
@@ -541,11 +589,19 @@ router.post("/recommend", async (req, res) => {
       return res.status(400).json({ error: "subscriber_id is required" });
     }
 
+    // Build deterministic reasoning steps before running the AI chat loop.
+    const sub = mockDb.getSubscriber(subscriber_id);
+    const engineRec = sub ? runRulesEngine(subscriber_id) : null;
+    const reasoning_steps =
+      engineRec && engineRec.status === "success"
+        ? buildReasoningSteps(sub, engineRec)
+        : [];
+
     const prompt = `Analyse subscriber ${subscriber_id} and provide a campaign recommendation.`;
     const { response, recommendation, tool_calls } = await runChat(prompt);
 
     console.log("[Agent2] /recommend tool_calls:", JSON.stringify(tool_calls, null, 2));
-    res.json({ response, recommendation, tool_calls });
+    res.json({ response, recommendation, tool_calls, reasoning_steps });
   } catch (error) {
     console.error("[Agent2 ERROR]", error?.message ?? error);
     res.status(500).json({ error: "Failed to generate recommendation", detail: error?.message });

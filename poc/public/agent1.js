@@ -3,6 +3,16 @@
 let chatHistory = [];
 let currentAccountContext = null;
 
+// ─── Scenario Opening Messages ────────────────────────────────────────────────
+
+const SCENARIO_OPENERS = {
+  1: (sub) => `Hi, my name is ${sub.name} and my line has been suspended. My account number is ${sub.account_number}. Can you help me?`,
+  2: (sub) => `Hello, I am ${sub.name}, account number ${sub.account_number}. I have been struggling to pay my bill and would like to set up a payment arrangement if possible.`,
+  3: (sub) => `Good day, this is ${sub.name}. My account number is ${sub.account_number}. I believe I already paid my balance but it is still showing as overdue. Can you check this?`,
+  4: (sub) => `Hi, my name is ${sub.name}, account number ${sub.account_number}. I cannot pay right now but I can commit to paying by the end of this week.`,
+  5: (sub) => `Hello, I am ${sub.name} and my account number is ${sub.account_number}. I have been receiving pre-legal notices and I need to understand my options before this goes further.`,
+};
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -41,12 +51,19 @@ function renderScenarios(scenarios) {
   });
 }
 
-function selectScenario(scenario, btnEl) {
+async function selectScenario(scenario, btnEl) {
   document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
   btnEl.classList.add('active');
   currentAccountContext = scenario.subscriber;
   maskCustomerCard(scenario.subscriber.account_number);
   resetChat();
+
+  const opener = SCENARIO_OPENERS[scenario.id];
+  if (opener && scenario.subscriber) {
+    const input = document.getElementById('agent1-input');
+    input.value = opener(scenario.subscriber);
+    await agent1Send();
+  }
 }
 
 // ─── Customer Card ────────────────────────────────────────────────────────────
@@ -214,10 +231,13 @@ function buildEntry(tc) {
   const params = formatParams(tc.args);
   const result = formatResult(tc.name, tc.result);
 
+  const toolLine = params
+    ? `[TOOL] ${tc.name}  |  ${params}`
+    : `[TOOL] ${tc.name}`;
+
   div.innerHTML = `
-    <div class="activity-tool">${esc(tc.name)}</div>
-    ${params ? `<div class="activity-params">${esc(params)}</div>` : ''}
-    <div class="activity-result">${esc(result)}</div>
+    <div class="activity-tool">${esc(toolLine)}</div>
+    <div class="activity-result">Result: ${esc(result)}</div>
   `;
   return div;
 }

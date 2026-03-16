@@ -674,6 +674,20 @@ input[type="checkbox"] {
   vertical-align: middle;
 }
 
+/* ─── Activity Step — DM Mono reasoning lines (Agent 2) ────────────────────── */
+
+.activity-step {
+  font-family: 'DM Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.activity-step-num {
+  color: var(--text-dim);
+  margin-right: 3px;
+}
+
 /* ─── Empty / Loading States ────────────────────────────────────────────────── */
 
 .empty-state {
@@ -689,4 +703,50 @@ input[type="checkbox"] {
   color: var(--text-dim);
   font-size: 11.5px;
   font-style: italic;
+}
+
+/* ─── Responsive — single-column below 1100px ──────────────────────────────── */
+
+@media (max-width: 1100px) {
+  html, body {
+    overflow: auto;
+  }
+
+  .tab-panel {
+    height: auto;
+    overflow: visible;
+  }
+
+  /* Override the default flex display to allow natural block stacking */
+  .tab-panel.active {
+    display: block;
+    padding: 10px;
+  }
+
+  .three-col {
+    grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* Columns stack in DOM order:
+     Agent 1: scenarios+card → chat → activity (thinking panel last)
+     Agent 2: table → recommendations → analysis+rpa log (thinking panels last) */
+
+  .col-stack {
+    overflow: visible;
+    min-height: 0;
+  }
+
+  .panel--fill  { height: auto; min-height: 300px; }
+  .panel--half  { flex: none;   min-height: 220px; }
+  .panel--grow  { flex: none;   min-height: 200px; }
+
+  /* Chat panel: give it a comfortable fixed height so it doesn't collapse */
+  .chat-panel        { min-height: 480px; }
+  .chat-box          { max-height: 360px; }
+
+  /* Table and recs panels: constrain scroll area on smaller screens */
+  .table-scroll { max-height: 260px; }
+  .recs-body    { max-height: 360px; }
 }

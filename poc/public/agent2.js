@@ -102,46 +102,76 @@ async function analyseSelected() {
   const ids = [...selectedIds];
   if (!ids.length) return;
 
-  const recsPanel   = document.getElementById('recommendations-panel');
-  const countBadge  = document.getElementById('recs-count-badge');
-  const analyseBtn  = document.getElementById('analyse-btn');
+  const recsPanel  = document.getElementById('recommendations-panel');
+  const countBadge = document.getElementById('recs-count-badge');
+  const analyseBtn = document.getElementById('analyse-btn');
 
   recsPanel.innerHTML = '<div class="loading-state">Generating recommendations...</div>';
   countBadge.style.display = 'none';
   analyseBtn.disabled = true;
-
   clearReasoning();
-  logReason('System', `Analysing ${ids.length} subscriber${ids.length !== 1 ? 's' : ''} via rules engine...`, 'info');
 
   try {
-    const res = await fetch('/api/agent2/recommend-bulk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscriber_ids: ids }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    if (ids.length === 1) {
+      // Single subscriber — use AI /recommend endpoint with reasoning_steps
+      logReason('System', 'Running AI analysis for selected subscriber...', 'info');
 
-    recsPanel.innerHTML = '';
-    let ok = 0;
+      const res = await fetch('/api/agent2/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriber_id: ids[0] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-    data.recommendations.forEach(rec => {
-      if (rec.status === 'success') {
-        ok++;
-        recsPanel.appendChild(buildRecCard(rec));
-        logReason(rec.subscriber_name, rec.reasoning, rec.urgency);
+      recsPanel.innerHTML = '';
+
+      if (data.recommendation && data.recommendation.status === 'success') {
+        recsPanel.appendChild(buildRecCard(data.recommendation));
+        countBadge.textContent = 1;
+        countBadge.style.display = 'inline-flex';
       } else {
-        logReason('Error', rec.message || 'Unknown error', 'error');
+        recsPanel.innerHTML = '<div class="empty-state">No recommendation could be generated.</div>';
       }
-    });
 
-    if (!ok) {
-      recsPanel.innerHTML = '<div class="empty-state">No recommendations could be generated.</div>';
+      if (data.reasoning_steps && data.reasoning_steps.length) {
+        logReason('Agent Reasoning', 'Step-by-step analysis:', 'info');
+        logReasoningSteps(data.reasoning_steps);
+      }
+
+    } else {
+      // Multiple subscribers — use deterministic /recommend-bulk (faster)
+      logReason('System', `Analysing ${ids.length} subscribers via rules engine...`, 'info');
+
+      const res = await fetch('/api/agent2/recommend-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriber_ids: ids }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      recsPanel.innerHTML = '';
+      let ok = 0;
+
+      data.recommendations.forEach(rec => {
+        if (rec.status === 'success') {
+          ok++;
+          recsPanel.appendChild(buildRecCard(rec));
+          logReason(rec.subscriber_name, rec.reasoning, rec.urgency);
+        } else {
+          logReason('Error', rec.message || 'Unknown error', 'error');
+        }
+      });
+
+      if (!ok) {
+        recsPanel.innerHTML = '<div class="empty-state">No recommendations could be generated.</div>';
+      }
+
+      countBadge.textContent = ok;
+      countBadge.style.display = ok > 0 ? 'inline-flex' : 'none';
+      logReason('System', `Analysis complete. ${ok} recommendation${ok !== 1 ? 's' : ''} generated.`, 'info');
     }
-
-    countBadge.textContent = ok;
-    countBadge.style.display = ok > 0 ? 'inline-flex' : 'none';
-    logReason('System', `Analysis complete. ${ok} recommendation${ok !== 1 ? 's' : ''} generated.`, 'info');
   } catch (err) {
     recsPanel.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
     logReason('Error', err.message, 'error');
@@ -258,6 +288,17 @@ function logReason(label, text, type = 'info') {
     <div class="activity-result">${esc(text)}</div>
   `;
   feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function logReasoningSteps(steps) {
+  const feed = document.getElementById('agent2-reasoning');
+  steps.forEach((step, i) => {
+    const div = document.createElement('div');
+    div.className = 'activity-entry';
+    div.innerHTML = `<div class="activity-step"><span class="activity-step-num">${i + 1}.</span> ${esc(step)}</div>`;
+    feed.appendChild(div);
+  });
   feed.scrollTop = feed.scrollHeight;
 }
 
