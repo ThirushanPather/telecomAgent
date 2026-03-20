@@ -16,6 +16,17 @@ class Settings:
     BEDROCK_MODEL_ID: str = _require("BEDROCK_MODEL_ID")
     WEBHOOK_URL: str | None = os.getenv("WEBHOOK_URL")
 
+    # Gmail SMTP — optional; falls back to simulation if absent
+    GMAIL_USER: str | None = os.getenv("GMAIL_USER")
+    GMAIL_APP_PASSWORD: str | None = os.getenv("GMAIL_APP_PASSWORD")
+    SMTP_RECIPIENT: str | None = os.getenv("SMTP_RECIPIENT")
+
+    # Twilio WhatsApp — optional; falls back to simulation if absent
+    TWILIO_ACCOUNT_SID: str | None = os.getenv("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH_TOKEN: str | None = os.getenv("TWILIO_AUTH_TOKEN")
+    TWILIO_WHATSAPP_FROM: str | None = os.getenv("TWILIO_WHATSAPP_FROM")
+    TWILIO_WHATSAPP_TO: str | None = os.getenv("TWILIO_WHATSAPP_TO")
+
     def __setattr__(self, _name, _value):
         raise AttributeError("Settings is frozen")
 

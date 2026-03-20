@@ -26,6 +26,7 @@ async function loadSubscribers() {
     renderTable();
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Failed to load: ${esc(err.message)}</td></tr>`;
+    setTimeout(() => { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Reload the page to retry.</td></tr>'; }, 5000);
   }
 }
 
@@ -174,6 +175,7 @@ async function analyseSelected() {
     }
   } catch (err) {
     recsPanel.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+    setTimeout(() => { recsPanel.innerHTML = '<div class="empty-state">Select subscribers and click Analyse Selected.</div>'; }, 5000);
     logReason('Error', err.message, 'error');
   } finally {
     analyseBtn.disabled = selectedIds.size === 0;
@@ -294,12 +296,14 @@ function logReason(label, text, type = 'info') {
 function logReasoningSteps(steps) {
   const feed = document.getElementById('agent2-reasoning');
   steps.forEach((step, i) => {
-    const div = document.createElement('div');
-    div.className = 'activity-entry';
-    div.innerHTML = `<div class="activity-step"><span class="activity-step-num">${i + 1}.</span> ${esc(step)}</div>`;
-    feed.appendChild(div);
+    setTimeout(() => {
+      const div = document.createElement('div');
+      div.className = 'activity-entry';
+      div.innerHTML = `<div class="activity-step"><span class="activity-step-num">${i + 1}.</span> ${esc(step)}</div>`;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }, i * 150);
   });
-  feed.scrollTop = feed.scrollHeight;
 }
 
 function clearReasoning() {
@@ -358,6 +362,7 @@ async function refreshRpaLog() {
     body.appendChild(table);
   } catch (err) {
     body.innerHTML = `<div class="empty-state">Failed to load: ${esc(err.message)}</div>`;
+    setTimeout(() => { body.innerHTML = '<div class="empty-state">No RPA actions executed yet.</div>'; }, 5000);
   }
 }
 

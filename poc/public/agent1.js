@@ -33,6 +33,7 @@ async function loadScenarios() {
     renderScenarios(scenarios);
   } catch (err) {
     container.innerHTML = `<div class="activity-empty">Failed to load scenarios: ${esc(err.message)}</div>`;
+    setTimeout(() => { container.innerHTML = '<div class="activity-empty">Reload the page to retry.</div>'; }, 5000);
   }
 }
 
@@ -212,16 +213,16 @@ function renderToolCalls(toolCalls) {
   const empty = feed.querySelector('.activity-empty');
   if (empty) empty.remove();
 
-  toolCalls.forEach(tc => {
-    feed.appendChild(buildEntry(tc));
+  // Prepend in reverse so the batch appears top-to-bottom in call order,
+  // with this batch above any entries from earlier in the conversation.
+  [...toolCalls].reverse().forEach(tc => {
+    feed.insertBefore(buildEntry(tc), feed.firstChild);
 
     // Auto-populate the customer card on successful verification
     if (tc.name === 'verify_customer_pcc' && tc.result?.status === 'verified') {
       populateCustomerCard(tc.result);
     }
   });
-
-  feed.scrollTop = feed.scrollHeight;
 }
 
 function buildEntry(tc) {

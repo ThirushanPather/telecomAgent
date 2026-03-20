@@ -294,8 +294,11 @@ def send_payment_link(
         channel: Delivery channel for the payment link. Must be SMS or EMAIL.
 
     Returns:
-        dict: Confirmation with delivery destination and reference number.
+        dict: Confirmation with delivery destination, reference number, and delivery status.
     """
+    from integrations.email import send_payment_email        # noqa: PLC0415
+    from integrations.whatsapp import send_whatsapp_message  # noqa: PLC0415
+
     sub = get_subscriber_by_account(account_number)
     if not sub:
         result = {"status": "error", "message": "Account not found."}
@@ -309,19 +312,41 @@ def send_payment_link(
                 if ch == "SMS"
                 else sub["name"].split(" ")[0].lower() + "@vodacom.co.za"
             )
+            reference = _ref()
             link = {
                 "type": "payment_link",
                 "account_number": account_number,
                 "channel": ch,
                 "destination": destination,
-                "reference": _ref(),
+                "reference": reference,
                 "logged_at": datetime.now().isoformat(),
             }
             append_rpa_action(link)
+
+            # Fire real communication — errors are logged but never surface to the agent.
+            if ch == "EMAIL":
+                delivery = send_payment_email(
+                    to_address=destination,
+                    customer_name=sub["name"],
+                    account_number=account_number,
+                    amount=sub["balance_owed"],
+                    days_overdue=sub["days_overdue"],
+                    reference=reference,
+                )
+            else:
+                delivery = send_whatsapp_message(
+                    to_number=f"whatsapp:{sub['msisdn']}",
+                    customer_name=sub["name"],
+                    account_number=account_number,
+                    amount=sub["balance_owed"],
+                    reference=reference,
+                )
+
             result = {
                 "status": "success",
                 "message": f"Secure payment link sent via {ch} to {destination}.",
-                "reference": link["reference"],
+                "reference": reference,
+                "delivery": delivery,
             }
     _capture("send_payment_link", {"account_number": account_number, "channel": channel}, result)
     return result
