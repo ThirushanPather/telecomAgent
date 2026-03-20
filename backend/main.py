@@ -13,11 +13,27 @@ from data.subscribers import get_all_subscribers
 from data.rpa_log import get_rpa_log
 from agents.call_center.agent import invoke_call_center_agent
 from agents.call_center.scenarios import SCENARIOS
+from agents.campaign_manager.agent import invoke_campaign_agent, bulk_recommend
+from agents.campaign_manager.tools import run_simulate_rpa
 
 
 class ChatRequest(BaseModel):
     messages: list[Any]
     accountContext: Optional[dict] = None
+
+
+class RecommendRequest(BaseModel):
+    subscriber_id: str
+
+
+class RecommendBulkRequest(BaseModel):
+    subscriber_ids: list[str]
+
+
+class ApproveActionRequest(BaseModel):
+    subscriber_id: str
+    action_type: str
+    details: Optional[str] = ""
 
 app = FastAPI(title="Vodacom Credit & Collections AI Agent")
 
@@ -51,31 +67,65 @@ def agent1_scenarios():
     return SCENARIOS
 
 
-# --- Agent 2 stubs ---
+# --- Agent 2 ---
 
 @app.post("/api/agent2/recommend")
-async def agent2_recommend():
-    return {"status": "not implemented"}
+def agent2_recommend(body: RecommendRequest):
+    # Single subscriber — AI analysis mode (blocking Bedrock call).
+    return invoke_campaign_agent(body.subscriber_id)
 
 
 @app.post("/api/agent2/recommend-bulk")
-async def agent2_recommend_bulk():
-    return {"status": "not implemented"}
+def agent2_recommend_bulk(body: RecommendBulkRequest):
+    # Multiple subscribers — deterministic rules engine, no AI.
+    recs = bulk_recommend(body.subscriber_ids)
+    return {"count": len(recs), "recommendations": recs}
 
 
 @app.post("/api/agent2/approve-action")
-async def agent2_approve_action():
-    return {"status": "not implemented"}
+def agent2_approve_action(body: ApproveActionRequest):
+    # Human approval gate — runs RPA action directly, then fires webhook.
+    result = run_simulate_rpa(body.subscriber_id, body.action_type, body.details or "")
+    if result["status"] == "error":
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=400, detail=result["message"])
+
+    # Fire webhook if configured — fail silently.
+    try:
+        from config import settings  # noqa: PLC0415
+        if settings.WEBHOOK_URL:
+            import httpx  # noqa: PLC0415
+            from datetime import datetime  # noqa: PLC0415
+            httpx.post(
+                settings.WEBHOOK_URL,
+                json={
+                    "event":           "RPA_ACTION_APPROVED",
+                    "timestamp":       datetime.now().isoformat(),
+                    "subscriber_id":   result["subscriber_id"],
+                    "subscriber_name": result["subscriber_name"],
+                    "action_type":     result["action_type"],
+                    "reference":       result["reference"],
+                    "recommended_by":  "AI_AGENT",
+                    "approved_by":     "HUMAN_OPERATOR",
+                },
+                timeout=5.0,
+            )
+    except Exception:
+        pass  # webhook errors never block the response
+
+    return result
 
 
 @app.get("/api/agent2/subscribers")
-async def agent2_subscribers():
-    return get_all_subscribers()
+def agent2_subscribers():
+    subs = get_all_subscribers()
+    return {"count": len(subs), "subscribers": subs}
 
 
 @app.get("/api/agent2/rpa-log")
-async def agent2_rpa_log():
-    return get_rpa_log()
+def agent2_rpa_log():
+    log = get_rpa_log()
+    return {"count": len(log), "actions": log}
 
 
 # --- Serve frontend (must be last) ---
