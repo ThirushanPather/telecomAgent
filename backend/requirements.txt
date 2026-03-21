@@ -8,3 +8,4 @@ pydantic
 aiofiles
 httpx
 twilio
+elevenlabs

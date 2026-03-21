@@ -87,7 +87,17 @@
     <div class="chat-panel">
       <div class="chat-panel-header">
         <span class="chat-panel-label">Voda — Call Center Agent</span>
-        <button class="btn btn--secondary" style="padding:5px 12px; font-size:11px;" onclick="newCall()">New Call</button>
+        <div class="chat-header-controls">
+          <span id="voice-active-indicator" class="voice-active-indicator" style="display:none;">
+            <span class="voice-dot"></span>Voice active
+          </span>
+          <label class="voice-toggle" title="Voice Mode">
+            <input type="checkbox" id="voice-mode-toggle">
+            <span class="voice-toggle-track"></span>
+            <span class="voice-toggle-label">Voice Mode</span>
+          </label>
+          <button class="btn btn--secondary" style="padding:5px 12px; font-size:11px;" onclick="newCall()">New Call</button>
+        </div>
       </div>
       <div class="chat-box" id="agent1-chat-box">
         <div class="message bot">Hello, thank you for calling Vodacom. My name is Voda. How can I assist you today?</div>
@@ -95,6 +105,7 @@
       <div class="chat-status" id="agent1-status"></div>
       <div class="chat-input-row">
         <input type="text" id="agent1-input" placeholder="Type a message..." autocomplete="off">
+        <button class="mic-btn" id="mic-btn" style="display:none;" title="Hold to speak"></button>
         <button class="btn btn--primary" id="agent1-send-btn" onclick="agent1Send()">Send</button>
       </div>
     </div>

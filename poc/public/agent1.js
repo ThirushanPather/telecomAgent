@@ -2,6 +2,9 @@
 
 let chatHistory = [];
 let currentAccountContext = null;
+let voiceMode = false;
+let currentAudio = null;
+let recognition = null;
 
 // ─── Scenario Opening Messages ────────────────────────────────────────────────
 
@@ -20,6 +23,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('agent1-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') agent1Send();
   });
+  initVoice();
+  const voiceToggleCheckbox = document.getElementById('voice-mode-toggle');
+  if (voiceToggleCheckbox) {
+    voiceToggleCheckbox.addEventListener('change', function() {
+      onVoiceToggle(this.checked);
+    });
+  }
 });
 
 // ─── Scenarios ────────────────────────────────────────────────────────────────
@@ -191,6 +201,7 @@ async function agent1Send() {
     chatHistory.push({ role: 'model', parts: [{ text: data.response }] });
 
     addMessage('bot', data.response);
+    speakReply(data.response);
 
     if (data.tool_calls && data.tool_calls.length > 0) {
       renderToolCalls(data.tool_calls);
@@ -292,4 +303,120 @@ function esc(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ─── Voice Mode ────────────────────────────────────────────────────────────────
+
+function initVoice() {
+  const micBtn = document.getElementById('mic-btn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SR) {
+    // Insert a note that appears only when voice mode is toggled on without SR support
+    const note = document.createElement('span');
+    note.id = 'no-voice-note';
+    note.style.cssText = 'font-size:10px; color:var(--text-dim); display:none;';
+    note.textContent = 'Voice input requires Chrome';
+    micBtn.insertAdjacentElement('afterend', note);
+    return;
+  }
+
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = 'en-ZA';
+
+  recognition.onresult = (e) => {
+    let transcript = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    document.getElementById('agent1-input').value = transcript;
+  };
+
+  recognition.onend = () => {
+    micBtn.classList.remove('recording');
+    const input = document.getElementById('agent1-input');
+    if (input.value.trim() && voiceMode) {
+      agent1Send();
+    }
+  };
+
+  recognition.onerror = (e) => {
+    micBtn.classList.remove('recording');
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      const status = document.getElementById('agent1-status');
+      status.textContent = `Voice error: ${e.error}`;
+      setTimeout(() => { status.textContent = ''; }, 3000);
+    }
+  };
+
+  micBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    document.getElementById('agent1-input').value = '';
+    try { recognition.start(); } catch (_) {}
+    micBtn.classList.add('recording');
+  });
+
+  micBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    document.getElementById('agent1-input').value = '';
+    try { recognition.start(); } catch (_) {}
+    micBtn.classList.add('recording');
+  }, { passive: false });
+
+  micBtn.addEventListener('mouseup', () => { try { recognition.stop(); } catch (_) {} });
+  micBtn.addEventListener('touchend', () => { try { recognition.stop(); } catch (_) {} });
+}
+
+function onVoiceToggle(on) {
+  voiceMode = on;
+  const micBtn    = document.getElementById('mic-btn');
+  const indicator = document.getElementById('voice-active-indicator');
+  const noNote    = document.getElementById('no-voice-note');
+
+  if (on) {
+    if (recognition) {
+      micBtn.style.display = 'inline-flex';
+    } else if (noNote) {
+      noNote.style.display = 'inline';
+    }
+    indicator.style.display = 'inline-flex';
+  } else {
+    micBtn.style.display = 'none';
+    if (noNote) noNote.style.display = 'none';
+    indicator.style.display = 'none';
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+  }
+}
+
+async function speakReply(text) {
+  if (!voiceMode) return;
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return; // 503 or other — silent fallback
+    const blob = new Blob([await res.arrayBuffer()], { type: 'audio/mpeg' });
+    const url  = URL.createObjectURL(blob);
+    if (currentAudio) {
+      currentAudio.pause();
+      if (currentAudio._blobUrl) URL.revokeObjectURL(currentAudio._blobUrl);
+    }
+    const audio = new Audio(url);
+    audio._blobUrl = url;
+    currentAudio = audio;
+    audio.play().catch(() => {});
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+    };
+  } catch (_) {
+    // Silent — TTS failures never interrupt the chat
+  }
 }

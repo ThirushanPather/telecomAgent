@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -126,6 +126,23 @@ def agent2_subscribers():
 def agent2_rpa_log():
     log = get_rpa_log()
     return {"count": len(log), "actions": log}
+
+
+# --- TTS ---
+
+class TtsRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/tts")
+def tts(body: TtsRequest):
+    from integrations.tts import synthesise_speech  # noqa: PLC0415
+    from fastapi import HTTPException               # noqa: PLC0415
+
+    audio = synthesise_speech(body.text)
+    if audio is None:
+        raise HTTPException(status_code=503, detail="TTS unavailable")
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 # --- Serve frontend (must be last) ---

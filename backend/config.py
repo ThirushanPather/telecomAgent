@@ -27,6 +27,10 @@ class Settings:
     TWILIO_WHATSAPP_FROM: str | None = os.getenv("TWILIO_WHATSAPP_FROM")
     TWILIO_WHATSAPP_TO: str | None = os.getenv("TWILIO_WHATSAPP_TO")
 
+    # ElevenLabs TTS — optional; returns None if absent
+    ELEVENLABS_API_KEY: str | None = os.getenv("ELEVENLABS_API_KEY")
+    ELEVENLABS_VOICE_ID: str = os.getenv("ELEVENLABS_VOICE_ID") or "YPtbPhafrxFTDAeaPP4w"
+
     def __setattr__(self, _name, _value):
         raise AttributeError("Settings is frozen")
 
