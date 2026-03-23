@@ -11,11 +11,62 @@ logger = logging.getLogger(__name__)
 
 # Matches *action descriptions*, **bold**, and bare asterisks.
 _MARKDOWN_RE = re.compile(r"\*+[^*]*\*+|\*+")
+# Matches Rand amounts like R10,500.00 or R1200 or R500.50
+_CURRENCY_RE = re.compile(r"R(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)")
+
+_ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight",
+         "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+         "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = ["", "", "twenty", "thirty", "forty", "fifty",
+         "sixty", "seventy", "eighty", "ninety"]
+
+
+def _int_to_words(n: int) -> str:
+    if n == 0:
+        return "zero"
+    if n < 0:
+        return "minus " + _int_to_words(-n)
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        rest = (" " + _ONES[n % 10]) if n % 10 else ""
+        return _TENS[n // 10] + rest
+    if n < 1_000:
+        rest = (" " + _int_to_words(n % 100)) if n % 100 else ""
+        return _ONES[n // 100] + " hundred" + rest
+    if n < 1_000_000:
+        rest = (" " + _int_to_words(n % 1_000)) if n % 1_000 else ""
+        return _int_to_words(n // 1_000) + " thousand" + rest
+    rest = (" " + _int_to_words(n % 1_000_000)) if n % 1_000_000 else ""
+    return _int_to_words(n // 1_000_000) + " million" + rest
+
+
+def _currency_to_words(match: re.Match) -> str:
+    raw = match.group(1).replace(",", "")
+    try:
+        amount = float(raw)
+    except ValueError:
+        return match.group(0)
+    rands = int(amount)
+    cents = round((amount - rands) * 100)
+    result = _int_to_words(rands) + " rand"
+    if cents:
+        result += " and " + _int_to_words(cents) + " cents"
+    return result
 
 
 def _clean(text: str) -> str:
-    """Strip markdown and action descriptions that sound bad when spoken."""
-    return _MARKDOWN_RE.sub("", text).strip()
+    """Strip markdown and normalise numbers/symbols that sound bad when spoken."""
+    # Remove markdown: **bold**, *italic*, bare asterisks
+    text = _MARKDOWN_RE.sub("", text)
+    # Currency: R10,500.00 → "ten thousand five hundred rand"
+    text = _CURRENCY_RE.sub(_currency_to_words, text)
+    # Remaining special characters
+    text = text.replace("##", "").replace("#", "")
+    text = re.sub(r"[•\-–—] +", "", text)   # bullet/dash list markers
+    text = text.replace("%", " percent")
+    text = text.replace("&", " and")
+    return text.strip()
 
 
 def synthesise_speech(text: str) -> bytes | None:

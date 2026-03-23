@@ -31,6 +31,9 @@ class Settings:
     ELEVENLABS_API_KEY: str | None = os.getenv("ELEVENLABS_API_KEY")
     ELEVENLABS_VOICE_ID: str = os.getenv("ELEVENLABS_VOICE_ID") or "YPtbPhafrxFTDAeaPP4w"
 
+    # Nova Sonic — uses existing AWS credentials; model ID is fixed
+    NOVA_SONIC_MODEL_ID: str = "amazon.nova-2-sonic-v1:0"
+
     def __setattr__(self, _name, _value):
         raise AttributeError("Settings is frozen")
 

@@ -393,6 +393,274 @@ function onVoiceToggle(on) {
   }
 }
 
+// ─── Phone Call Mode ────────────────────────────────────────────────────────────
+
+let phoneCallActive      = false;
+let phoneCallWs          = null;
+let isAgentSpeaking      = false;
+
+// Web Audio context — created lazily on first user interaction.
+let audioCtx             = null;
+let nextAudioTime        = 0;        // scheduled end of last queued chunk
+let activeSources        = [];       // BufferSourceNodes currently playing
+
+// AudioWorklet capture (replaces MediaRecorder)
+let audioStream          = null;     // MediaStream from getUserMedia
+let audioWorkletNode     = null;     // AudioWorkletNode for PCM capture
+
+async function loadCallSubscribers() {
+  const select = document.getElementById('call-subscriber-select');
+  try {
+    const res = await fetch('/api/agent2/subscribers');
+    if (!res.ok) return;
+    const data = await res.json();
+    select.innerHTML = '<option value="">— select a customer —</option>';
+    data.subscribers.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({ name: s.name, account_number: s.account_number, msisdn: s.msisdn });
+      opt.textContent = `${s.id} — ${s.name} (${s.days_overdue} days overdue)`;
+      select.appendChild(opt);
+    });
+  } catch (_) {
+    select.innerHTML = '<option value="">— failed to load —</option>';
+  }
+}
+
+function injectSubscriber() {
+  const select = document.getElementById('call-subscriber-select');
+  if (!select.value) return;
+  const sub = JSON.parse(select.value);
+  const msisdn = sub.msisdn.replace('+', '');
+  sendTextToAgent(
+    `My name is ${sub.name}, my account number is ${sub.account_number} and my MSISDN is ${msisdn}`
+  );
+}
+
+function sendTextToAgent(text) {
+  if (!phoneCallWs || phoneCallWs.readyState !== WebSocket.OPEN) return;
+  phoneCallWs.send(JSON.stringify({ type: 'text_input', text }));
+  appendCallTranscript('user', text);
+}
+
+function sendCallText() {
+  const input = document.getElementById('call-text-input');
+  const text = input.value.trim();
+  if (!text) return;
+  sendTextToAgent(text);
+  input.value = '';
+}
+
+function startPhoneCall() {
+  const sessionId = crypto.randomUUID();
+
+  // Hide chat content, show overlay.
+  document.getElementById('agent1-chat-box').style.display  = 'none';
+  document.getElementById('agent1-status').style.display    = 'none';
+  document.getElementById('agent1-input-row').style.display = 'none';
+  document.getElementById('phone-call-overlay').style.display = 'flex';
+
+  loadCallSubscribers();
+  setCallStatus('Connecting...');
+
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  phoneCallWs = new WebSocket(`${wsProto}//${location.host}/ws/phone-call/${sessionId}`);
+  phoneCallWs.binaryType = 'arraybuffer';
+
+  phoneCallWs.onopen = async () => {
+    setCallStatus('Connected — speak to Voda');
+    phoneCallActive = true;
+    nextAudioTime = 0;
+
+    try {
+      audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+
+      // AudioContext must be created after a user gesture.
+      audioCtx = new AudioContext({ sampleRate: 16000 });
+
+      const source = audioCtx.createMediaStreamSource(audioStream);
+      await audioCtx.audioWorklet.addModule('/audio-processor.js');
+      audioWorkletNode = new AudioWorkletNode(audioCtx, 'pcm-processor');
+      source.connect(audioWorkletNode);
+
+      let _chunkCount = 0;
+      audioWorkletNode.port.onmessage = (ev) => {
+        if (phoneCallWs?.readyState === WebSocket.OPEN) {
+          _chunkCount++;
+          if (_chunkCount <= 5 || _chunkCount % 50 === 0) {
+            console.log(`[Phone] Sending PCM chunk #${_chunkCount}: ${ev.data.byteLength} bytes`);
+          }
+          phoneCallWs.send(ev.data);
+        }
+      };
+
+      console.log('[Phone] AudioWorklet PCM capture started at 16 kHz');
+    } catch (err) {
+      setCallStatus(`Mic error: ${esc(err.message)}`);
+    }
+  };
+
+  phoneCallWs.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch (_) { return; }
+    if (msg.type !== 'audio') {
+      console.log('[Phone] WS message received:', msg);
+    } else {
+      console.log('[Phone] WS audio chunk received, sampleRate:', msg.sampleRate,
+                  'data length:', msg.data?.length);
+    }
+    handleCallMessage(msg);
+  };
+
+  phoneCallWs.onclose = () => endPhoneCall();
+  phoneCallWs.onerror = () => { setCallStatus('Connection error'); endPhoneCall(); };
+}
+
+function handleCallMessage(msg) {
+  switch (msg.type) {
+    case 'audio':
+      isAgentSpeaking = true;
+      setCallStatus('Agent speaking...');
+      document.getElementById('call-interrupt-btn').style.display = 'inline-flex';
+      playPCMChunk(msg.data, msg.sampleRate || 24000);
+      break;
+
+    case 'transcript':
+      appendCallTranscript(msg.role, msg.text);
+      break;
+
+    case 'tool_call':
+      appendCallToolEntry(msg.name, msg.result);
+      break;
+
+    case 'turn_end':
+      isAgentSpeaking = false;
+      document.getElementById('call-interrupt-btn').style.display = 'none';
+      setCallStatus('Listening...');
+      break;
+
+    case 'error':
+      setCallStatus(`Error: ${esc(msg.message)}`);
+      setTimeout(() => endPhoneCall(), 2000);
+      break;
+  }
+}
+
+function endPhoneCall() {
+  // Stop AudioWorklet capture
+  if (audioWorkletNode) {
+    audioWorkletNode.disconnect();
+    audioWorkletNode = null;
+  }
+  if (audioStream) {
+    audioStream.getTracks().forEach(t => t.stop());
+    audioStream = null;
+  }
+  if (audioCtx && audioCtx.state !== 'closed') {
+    audioCtx.close();
+    audioCtx = null;
+  }
+
+  if (phoneCallWs) {
+    phoneCallWs.onclose = null; // prevent re-entry
+    phoneCallWs.close();
+    phoneCallWs = null;
+  }
+
+  stopAllCallAudio();
+
+  document.getElementById('phone-call-overlay').style.display = 'none';
+  document.getElementById('agent1-chat-box').style.display    = '';
+  document.getElementById('agent1-status').style.display      = '';
+  document.getElementById('agent1-input-row').style.display   = '';
+
+  phoneCallActive = false;
+  isAgentSpeaking = false;
+  setCallStatus('');
+}
+
+function interruptAgent() {
+  if (phoneCallWs?.readyState === WebSocket.OPEN) {
+    phoneCallWs.send(JSON.stringify({ type: 'interrupt' }));
+  }
+  stopAllCallAudio();
+  isAgentSpeaking = false;
+  document.getElementById('call-interrupt-btn').style.display = 'none';
+  setCallStatus('Listening...');
+}
+
+// PCM 16-bit signed mono → Web Audio API gapless playback.
+function playPCMChunk(base64Data, sampleRate) {
+  if (!audioCtx) return;
+  try {
+    const binary = atob(base64Data);
+    const bytes  = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    const pcm16   = new Int16Array(bytes.buffer);
+    const float32 = new Float32Array(pcm16.length);
+    for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
+
+    const buffer = audioCtx.createBuffer(1, float32.length, sampleRate || 24000);
+    buffer.copyToChannel(float32, 0);
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioCtx.destination);
+
+    // Schedule chunks back-to-back for gapless playback.
+    const startTime = Math.max(audioCtx.currentTime + 0.05, nextAudioTime);
+    source.start(startTime);
+    nextAudioTime = startTime + buffer.duration;
+
+    activeSources.push(source);
+    source.onended = () => {
+      const idx = activeSources.indexOf(source);
+      if (idx !== -1) activeSources.splice(idx, 1);
+    };
+  } catch (_) {}
+}
+
+function stopAllCallAudio() {
+  for (const src of activeSources) { try { src.stop(); } catch (_) {} }
+  activeSources = [];
+  nextAudioTime = 0;
+}
+
+function setCallStatus(text) {
+  const el = document.getElementById('call-status');
+  if (el) el.textContent = text;
+}
+
+function appendCallTranscript(role, text) {
+  const feed = document.getElementById('call-transcript');
+  if (!feed) return;
+  const div = document.createElement('div');
+  div.className = role === 'user' ? 'message user' : 'message bot';
+  div.textContent = text;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function appendCallToolEntry(name, result) {
+  const feed = document.getElementById('call-transcript');
+  if (!feed) return;
+  const div = document.createElement('div');
+  div.className = 'activity-entry';
+  div.style.cssText = 'width:100%;';
+  div.innerHTML = `<div class="activity-tool">${esc(name)}</div>`
+    + `<div class="activity-result">${esc(JSON.stringify(result))}</div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+window.startPhoneCall   = startPhoneCall;
+window.endPhoneCall     = endPhoneCall;
+window.interruptAgent   = interruptAgent;
+window.injectSubscriber = injectSubscriber;
+window.sendCallText     = sendCallText;
+
 async function speakReply(text) {
   if (!voiceMode) return;
   try {

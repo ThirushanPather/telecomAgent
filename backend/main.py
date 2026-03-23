@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import uvicorn
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -145,10 +145,32 @@ def tts(body: TtsRequest):
     return Response(content=audio, media_type="audio/mpeg")
 
 
+# --- Nova Sonic phone call ---
+
+@app.websocket("/ws/phone-call/{session_id}")
+async def phone_call_ws(websocket: WebSocket, session_id: str):
+    import logging  # noqa: PLC0415
+    from integrations.nova_sonic import run_phone_call_session  # noqa: PLC0415
+
+    _log = logging.getLogger(__name__)
+    _log.info("[%s] Phone call WebSocket connected", session_id)
+    await websocket.accept()
+    try:
+        await run_phone_call_session(websocket, session_id)
+    except Exception as exc:  # noqa: BLE001
+        _log.error("[%s] WebSocket error: %s", session_id, exc, exc_info=True)
+    finally:
+        _log.info("[%s] Phone call WebSocket closed", session_id)
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 # --- Serve frontend (must be last) ---
 
 app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="static")
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="info")

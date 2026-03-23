@@ -9,3 +9,8 @@ aiofiles
 httpx
 twilio
 elevenlabs
+websockets
+pyaudio
+aws-sdk-bedrock-runtime
+smithy-aws-core
+awscrt
